@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+*.egg-info/
+
+# Dev-only email outbox (EMAIL_MODE=log) — may contain activation links
+var/outbox/

@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hostelpass
+      POSTGRES_PASSWORD: hostelpass
+      POSTGRES_DB: hostelpass
+    ports:
+      # Bound to loopback only; not exposed to the network.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hostelpass -d hostelpass"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Inside the compose network the database is the `db` service, not
+      # loopback:5433 (that host:port is for processes on the host machine).
+      DATABASE_URL: postgresql+psycopg://hostelpass:hostelpass@db:5432/hostelpass
+      # --- Email delivery (activation links) -------------------------------
+      # Explicitly interpolated from the compose project .env (same file the
+      # `env_file` directive reads; never commit it). EMAIL_MODE=off sends
+      # nothing and the API says so honestly; EMAIL_MODE=smtp delivers for
+      # real; EMAIL_MODE=log writes rendered .eml files into the container's
+      # var/outbox (development only).
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
+      EMAIL_MODE: ${EMAIL_MODE:-off}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      # Resend convention supported without renaming anything: if SMTP_PASSWORD
+      # is blank, fall back to RESEND_API_KEY from the same untracked .env.
+      # Never write either value into a git-tracked file.
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-${RESEND_API_KEY:-}}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-HostelPass}
+      # STARTTLS on non-465 ports; set false only for a trusted local relay.
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
