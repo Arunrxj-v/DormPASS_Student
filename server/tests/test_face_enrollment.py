@@ -148,3 +148,19 @@ def test_enrollment_requires_auth(client):
                       json={"embedding": [0.1], "embedding_dim": 1,
                             "model_version": "x"})
     assert_error(resp, 401, "token_invalid")
+
+
+def test_dev_fallback_key_is_a_valid_fernet_key():
+    """Regression: the FACE_TEMPLATE_KEY default must be a real Fernet key.
+
+    Production incident: the constant base64-wrapped an ASCII phrase (39
+    bytes, not 32), so any deployment that lost its .env key 500'd on every
+    face enrollment instead of falling back to a working dev key.
+    """
+    from cryptography.fernet import Fernet
+
+    from app.core.config import _DEV_FERNET_KEY
+
+    fernet = Fernet(_DEV_FERNET_KEY.encode("utf-8"))  # raises if invalid
+    blob = fernet.encrypt(b"\x00" * 512)  # 128 float32 dims
+    assert fernet.decrypt(blob) == b"\x00" * 512

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image/image.dart' as img;
 
@@ -210,8 +211,7 @@ class ScanFlowController extends Notifier<ScanFlowState> {
         return;
       }
 
-      // Tight crop for both models (margin is applied by the embedder path;
-      // here we crop tightly ourselves so liveness and embedding share it).
+      // Tight crop feeds ONLY liveness (unchanged, passing behavior).
       final crop = _tightCrop(upright, faceBox);
 
       // --- Liveness (passive PAD) ---
@@ -228,8 +228,24 @@ class ScanFlowController extends Notifier<ScanFlowState> {
       }
 
       // --- Embedding ---
+      //
+      // MUST mirror the warden enrollment pipeline EXACTLY (audit finding):
+      // enrollment embeds `embedFromCrop` — the face box expanded by 22%
+      // margin. This step previously embedded the TIGHT crop (margin 0),
+      // which changed the face's scale inside the 112×112 model input by
+      // ~1.44× versus the stored template — the server-side cosine then fell
+      // below the hostel threshold even for the enrolled, live person.
+      // Same decode (EXIF-baked upright) + same ML Kit box + same margin crop
+      // + same resize/normalization + same model = comparable embeddings.
       final embedder = await ref.read(faceEmbedderProvider.future);
-      final embedding = embedder.embed(crop);
+      final embedding = embedder.embedFromCrop(upright, faceBox);
+      // TEMP (face-pipeline audit): what leaves the device. No embedding
+      // VALUES are printed — length, crop path and threshold only.
+      debugPrint(
+        '[FaceDebug] verify embedding: len=${embedding.length} '
+        'crop=box+22%margin (mirrors warden enrollment) '
+        'configuredThreshold=${_geofence.faceMatchThreshold}',
+      );
 
       // --- Submit (server decides) ---
       state = state.copy(faceStage: FaceStage.submitting, pipelineStep: 2);
@@ -253,9 +269,22 @@ class ScanFlowController extends Notifier<ScanFlowState> {
         result: record,
         pipelineStep: 3,
       );
+      // TEMP (face-pipeline audit): the server-computed similarity on success.
+      debugPrint(
+        '[FaceDebug] verify OK: similarity=${record.faceSimilarity} '
+        'threshold=${_geofence.faceMatchThreshold}',
+      );
     } on AppException catch (e) {
+      // TEMP (face-pipeline audit): server rejections carry structured
+      // details — for face_mismatch that is exactly {similarity, threshold}.
+      debugPrint(
+        '[FaceDebug] verify rejected: code=${e.code} details=${e.details}',
+      );
       state = state.copy(faceStage: FaceStage.idle, faceError: e);
-    } catch (_) {
+    } catch (e) {
+      // TEMP (face-pipeline audit): the real local failure is printed, never
+      // hidden. The user-facing mapping below is intentionally unchanged.
+      debugPrint('[FaceDebug] unexpected local failure: $e');
       state = state.copy(
         faceStage: FaceStage.idle,
         faceError: const AppException('local_server_unreachable'),

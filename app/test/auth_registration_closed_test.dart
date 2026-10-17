@@ -171,7 +171,7 @@ void main() {
       await AuthRepository(client)
           .login(identifier: 'a@ceconline.edu', password: 'pw');
 
-      expect(adapter.last!.path, endsWith('/api/v1/auth/login'));
+      expect(adapter.last!.path, endsWith('/v1/auth/login'));
       final body = _sentBody(adapter.last!);
       expect(body.keys, unorderedEquals(['email', 'password']));
       expect(body.containsKey('role'), isFalse);
@@ -192,7 +192,7 @@ void main() {
     test('Google sign-in posts only the ID token', () async {
       final (client, adapter) = _client(body: _loginOk);
       await AuthRepository(client).loginWithGoogle('id-token-value');
-      expect(adapter.last!.path, endsWith('/api/v1/auth/google'));
+      expect(adapter.last!.path, endsWith('/v1/auth/google'));
       final body = _sentBody(adapter.last!);
       expect(body.keys, ['id_token']);
     });
@@ -201,7 +201,7 @@ void main() {
       final (client, adapter) = _client(body: _loginOk);
       await AuthRepository(client)
           .activate(token: 'a' * 40, password: 'LongEnough1');
-      expect(adapter.last!.path, endsWith('/api/v1/auth/activate'));
+      expect(adapter.last!.path, endsWith('/v1/auth/activate'));
       final body = _sentBody(adapter.last!);
       expect(body.keys, unorderedEquals(['token', 'password']));
       // No self-asserted lifecycle flags can ride along.

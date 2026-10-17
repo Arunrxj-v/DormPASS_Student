@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Development-only fallback so a missing FACE_TEMPLATE_KEY never bricks local
 # runs silently. Production deployments MUST set their own key via .env.
-_DEV_FERNET_KEY = "ZGV2LW9ubHktZmFjZS10ZW1wbGF0ZS1rZXktY2hhbmdlLW1lLT8="
+# NOTE: the value MUST be urlsafe-base64 of exactly 32 bytes (a valid Fernet
+# key) — Fernet() rejects anything else. An earlier ASCII-phrase constant here
+# caused 500s on every face enrollment in production once .env lost its key.
+_DEV_FERNET_KEY = "ZG9ybXBhc3MtZGV2LWZhY2UtdGVtcGxhdGUta2V5ISE="
 
 
 class Settings(BaseSettings):
@@ -44,21 +47,27 @@ class Settings(BaseSettings):
     # moment, ONLY to the already-authorized issuer — never by any read
     # endpoint, never in logs or audit rows (only its SHA-256 hash is stored).
     # Set false to withhold it (email-only deployments); the warden app then
-    # shows the email delivery outcome instead.
+    # shows the email delivery outcome instead. PRODUCTION email-only
+    # deployments (EMAIL_MODE=resend) MUST set this to false: the activation
+    # link must travel by email, never in API responses.
     allow_inline_activation_token: bool = True
 
     # --- Email delivery (activation links) ----------------------------------
     # Explicit mode — behavior is never inferred from whether variables happen
     # to be set:
-    #   off  -> no delivery attempted; the API reports
-    #           email_status="not_configured" and never claims a send.
-    #   log  -> development: the fully rendered email (including the
-    #           activation link) is written to email_log_dir as an .eml file
-    #           ("outbox" for local inspection). The token is NEVER written
-    #           to application logs.
-    #   smtp -> production/home server: delivered through SMTP (STARTTLS;
-    #           implicit TLS on port 465). Sent only when the provider
-    #           accepts the message — the API reports the real outcome.
+    #   off    -> no delivery attempted; the API reports
+    #              email_status="not_configured" and never claims a send.
+    #   log    -> development: the fully rendered email (including the
+    #              activation link) is written to email_log_dir as an .eml file
+    #              ("outbox" for local inspection). The token is NEVER written
+    #              to application logs.
+    #   resend -> PRODUCTION: delivered through the Resend Email API over
+    #              HTTPS with the official Python SDK (RESEND_API_KEY +
+    #              RESEND_FROM_EMAIL). "sent" is returned only when Resend
+    #              accepts the message; the provider message id is recorded.
+    #   smtp   -> alternative production backend (STARTTLS; implicit TLS on
+    #              port 465). Kept for operators who already run an SMTP
+    #              relay; the recommended production path is "resend".
     email_mode: str = "off"
     smtp_host: str = ""
     smtp_port: int = 587
@@ -67,6 +76,13 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     smtp_from_name: str = "HostelPass"
     smtp_use_tls: bool = True
+    # --- Resend Email API (EMAIL_MODE=resend) --------------------------------
+    # Secrets come from the environment ONLY, never from source, never from
+    # git-tracked files, never into logs.
+    resend_api_key: str = ""
+    # Sender — MUST be a sender/domain verified in the Resend account.
+    resend_from_email: str = ""
+    resend_from_name: str = "DormPASS"
     email_timeout_seconds: int = 10
     # Dev-only outbox directory for email_mode=log (relative to server dir).
     email_log_dir: str = "var/outbox"
@@ -74,13 +90,18 @@ class Settings(BaseSettings):
     # Public base URL of this deployment (no trailing slash), e.g.
     # "https://hostelpass.example.edu" in production. Used to build the
     # activation link that goes INTO emails — students must never receive a
-    # localhost URL.
-    app_base_url: str = "http://localhost:8000"
+    # localhost URL. ACTIVATION_BASE_URL is accepted as an alias for the same
+    # setting (reuse, not duplication: whichever of the two names the
+    # deployment uses, it lands here).
+    app_base_url: str = Field(
+        default="http://localhost:8000",
+        validation_alias=AliasChoices("APP_BASE_URL", "ACTIVATION_BASE_URL"),
+    )
 
     @field_validator("email_mode")
     @classmethod
     def _validate_email_mode(cls, value: str) -> str:
-        allowed = {"off", "log", "smtp"}
+        allowed = {"off", "log", "resend", "smtp"}
         if value not in allowed:
             raise ValueError(
                 f"EMAIL_MODE must be one of {sorted(allowed)}, got {value!r}."

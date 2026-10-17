@@ -225,7 +225,7 @@ For development, put the server and the phone on the same Tailscale network
 and point the app at the Tailscale IP:
 
 ```bash
-flutter run --dart-define=API_BASE_URL=http://<tailscale-ip>:8000
+flutter run --dart-define=API_BASE_URL=http://<tailscale-ip>:8000/api
 ```
 
 Tailscale traffic is already encrypted end-to-end (WireGuard), so plain HTTP
@@ -280,7 +280,7 @@ unreadable after restore — store the key in a password manager, not only in
 
 ```bash
 cd app
-flutter build apk --release --dart-define=API_BASE_URL=https://attendance.example.edu
+flutter build apk --release --dart-define=API_BASE_URL=https://attendance.example.edu/api
 ```
 
 The API base URL is compile-time; a wrong URL means the app simply cannot reach

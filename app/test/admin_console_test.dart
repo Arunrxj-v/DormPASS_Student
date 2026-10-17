@@ -138,7 +138,7 @@ void main() {
         hostelIds: ['95bb0f53-1423-4f15-b2f4-f0f916d761eb'],
       );
 
-      expect(adapter.last!.path, endsWith('/api/v1/admin/wardens'));
+      expect(adapter.last!.path, endsWith('/v1/admin/wardens'));
       expect(adapter.last!.method, 'POST');
       final body = _sentBody(adapter.last!);
       expect(
@@ -159,7 +159,7 @@ void main() {
       );
 
       expect(adapter.last!.method, 'PATCH');
-      expect(adapter.last!.path, endsWith('/api/v1/admin/wardens/warden.ganga'));
+      expect(adapter.last!.path, endsWith('/v1/admin/wardens/warden.ganga'));
       expect(_sentBody(adapter.last!).keys, unorderedEquals(['account_status']));
     });
 
@@ -182,7 +182,7 @@ void main() {
       expect(adapter.last!.method, 'DELETE');
       expect(
         adapter.last!.path,
-        endsWith('/api/v1/admin/wardens/warden.ganga'),
+        endsWith('/v1/admin/wardens/warden.ganga'),
       );
     });
   });
@@ -191,16 +191,16 @@ void main() {
   // Requirement: no hardcoded credentials; admin section is role-gated.
   // ---------------------------------------------------------------------
   group('Admin console source guarantees', () {
-    test('AdminRepository only ever calls /api/v1/admin', () {
+    test('AdminRepository only ever calls /v1/admin', () {
       final source = File(
         'lib/features/admin/admin_repository.dart',
       ).readAsStringSync();
-      expect(source.contains("'/api/v1/admin'"), isTrue);
+      expect(source.contains("'/v1/admin'"), isTrue);
       // Every path it builds is '$_base/...' — nothing may fall through to a
       // warden or student endpoint, which would be a privilege mismatch.
-      expect(source.contains('/api/v1/warden'), isFalse);
-      expect(source.contains('/api/v1/auth'), isFalse);
-      expect(source.contains('/api/v1/students'), isFalse);
+      expect(source.contains('/v1/warden'), isFalse);
+      expect(source.contains('/v1/auth'), isFalse);
+      expect(source.contains('/v1/students'), isFalse);
     });
 
     test('no development credential literal appears anywhere in lib/', () {

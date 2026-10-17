@@ -12,3 +12,6 @@ numpy==2.2.5
 # Google ID-token verification fetches Google's JWKS over HTTPS
 # (app/services/google_auth.py) — required at runtime, not just for tests.
 httpx==0.28.1
+# Resend Email API client (EMAIL_MODE=resend — production activation email
+# delivery in app/services/email.py). Official SDK; HTTPS only.
+resend==2.49.1

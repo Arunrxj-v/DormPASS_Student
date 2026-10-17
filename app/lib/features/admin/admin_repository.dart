@@ -5,7 +5,9 @@ import 'admin_models.dart';
 /// Administrator-only operations: warden account provisioning, hostel
 /// assignment and account status.
 ///
-/// Every call targets `/api/v1/admin/*`, which FastAPI guards with a
+/// Every call targets `/v1/admin/*` on the configured API base (the
+/// production mount is `/api`, so the wire path is `/api/v1/admin/*`), which
+/// FastAPI guards with a
 /// router-level `Depends(require_admin)`. Reaching this class from the client
 /// is NOT what authorizes any of it — a warden or student session receives
 /// 403 from the server regardless of what this code sends.
@@ -18,7 +20,7 @@ class AdminRepository {
 
   final ApiClient _api;
 
-  static const _base = '/api/v1/admin';
+  static const _base = '/v1/admin';
 
   // ---------------------------------------------------------------- read
 

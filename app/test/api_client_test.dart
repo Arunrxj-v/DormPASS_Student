@@ -57,7 +57,7 @@ void main() {
         },
       }));
 
-      final ex = await _expectFailure(client.get('/api/v1/attendance/status'));
+      final ex = await _expectFailure(client.get('/v1/attendance/status'));
       expect(ex.code, 'duplicate_attendance');
       expect(ex.message, contains('already marked'));
       expect(ex.details['date'], '2026-10-13');
@@ -73,7 +73,7 @@ void main() {
       }));
 
       final ex = await _expectFailure(
-        client.post('/api/v1/attendance/verify', body: const {}),
+        client.post('/v1/attendance/verify', body: const {}),
       );
       expect(ex.code, 'outside_geofence');
       expect(ex.details['distance_m'], 420.5);
@@ -81,13 +81,13 @@ void main() {
 
     test('non-envelope JSON 401 falls back to token_invalid', () async {
       final client = _clientWith(401, '{"detail":"Not authenticated"}');
-      final ex = await _expectFailure(client.get('/api/v1/auth/me'));
+      final ex = await _expectFailure(client.get('/v1/auth/me'));
       expect(ex.code, 'token_invalid');
     });
 
     test('non-envelope 429 maps to rate_limited', () async {
       final client = _clientWith(429, '{"detail":"slow down"}');
-      final ex = await _expectFailure(client.get('/api/v1/attendance/verify'));
+      final ex = await _expectFailure(client.get('/v1/attendance/verify'));
       expect(ex.code, 'rate_limited');
     });
   });

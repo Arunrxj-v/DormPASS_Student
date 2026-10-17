@@ -59,13 +59,13 @@ class AttendanceRepository {
   final ApiClient _api;
 
   Future<GeofenceConfig> geofence() async {
-    final data = await _api.get('/api/v1/hostels/me/geofence');
+    final data = await _api.get('/v1/hostels/me/geofence');
     return GeofenceConfig.fromJson(data as Map<String, dynamic>);
   }
 
   Future<AttendanceStatusResponse> status({String? date}) async {
     final data = await _api.get(
-      '/api/v1/attendance/status',
+      '/v1/attendance/status',
       query: {if (date != null) 'date': date},
     );
     return AttendanceStatusResponse.fromJson(data as Map<String, dynamic>);
@@ -73,7 +73,7 @@ class AttendanceRepository {
 
   Future<AttendanceRecord> verify(VerifyEvidence evidence) async {
     final data = await _api.post(
-      '/api/v1/attendance/verify',
+      '/v1/attendance/verify',
       body: evidence.toJson(),
     );
     return AttendanceRecord.fromJson(data as Map<String, dynamic>);
@@ -86,7 +86,7 @@ class AttendanceRepository {
     int pageSize = 20,
   }) async {
     final data = await _api.get(
-      '/api/v1/attendance/history',
+      '/v1/attendance/history',
       query: {
         if (month != null) 'month': month,
         if (status != null) 'status': status,
@@ -99,14 +99,14 @@ class AttendanceRepository {
 
   Future<AttendanceSummary> summary({String? month}) async {
     final data = await _api.get(
-      '/api/v1/attendance/summary',
+      '/v1/attendance/summary',
       query: {if (month != null) 'month': month},
     );
     return AttendanceSummary.fromJson(data as Map<String, dynamic>);
   }
 
   Future<FaceEnrollmentStatus> faceEnrollmentStatus() async {
-    final data = await _api.get('/api/v1/face-enrollment');
+    final data = await _api.get('/v1/face-enrollment');
     return FaceEnrollmentStatus.fromJson(data as Map<String, dynamic>);
   }
 

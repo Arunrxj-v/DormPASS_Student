@@ -441,3 +441,152 @@ def test_landing_page_never_reflects_query_input(client):
     resp = client.get("/activate", params={"token": secret})
     assert resp.status_code == 200
     assert secret not in resp.text
+
+
+# --------------------------------------------------------------------------
+# Service: resend mode (production — Resend Email API over HTTPS)
+# --------------------------------------------------------------------------
+
+class _FakeResendAPI:
+    """Recorder standing in for ``resend.Emails`` (send only)."""
+
+    calls: list = []
+    raise_with: Exception | None = None
+    return_id: str = "msg_test_123"
+
+    @classmethod
+    def send(cls, params, options=None):
+        if cls.raise_with is not None:
+            raise cls.raise_with
+        cls.calls.append(dict(params))
+        return {"id": cls.return_id}
+
+
+def _enable_resend(monkeypatch, *, with_key=True,
+                   from_email="noreply@example.edu"):
+    """EMAIL_MODE=resend with a fake Resend API boundary.
+
+    Everything EXCEPT the HTTP call itself is real: payload rendering, link
+    construction, configuration checks, status mapping and the API contract.
+    The live-network path is exercised against the real provider in the
+    deployment E2E, never in the unit suite.
+    """
+    monkeypatch.setattr(settings, "email_mode", "resend")
+    monkeypatch.setattr(
+        settings, "resend_api_key", "re_test_key" if with_key else ""
+    )
+    monkeypatch.setattr(settings, "resend_from_email", from_email)
+    monkeypatch.setattr(settings, "resend_from_name", "DormPASS")
+    monkeypatch.setattr(
+        settings, "app_base_url", "https://hostelpass.example.edu"
+    )
+    _FakeResendAPI.calls = []
+    _FakeResendAPI.raise_with = None
+    assert email_service.resend is not None, "resend SDK must be installed"
+    monkeypatch.setattr(email_service.resend.Emails, "send", _FakeResendAPI.send)
+
+
+def test_resend_mode_delivers_through_resend_api(reset_email_settings,
+                                                 monkeypatch):
+    """EMAIL_MODE=resend: real payload through the Resend API boundary."""
+    _enable_resend(monkeypatch)
+    result = email_service.send_activation_email(
+        to_email="cs-2022-084@ceconline.edu",
+        student_name="Rohan Sharma",
+        roll="CS-2022-084",
+        plaintext_token="SECRET-TOKEN-VALUE-FOR-TEST",
+        expires_at=_now(),
+    )
+    assert result.status == email_service.STATUS_SENT
+    assert result.provider_id == "msg_test_123"
+    assert "msg_test_123" in (result.detail or "")
+    assert "SECRET-TOKEN-VALUE-FOR-TEST" not in (result.detail or "")
+
+    assert len(_FakeResendAPI.calls) == 1
+    params = _FakeResendAPI.calls[0]
+    assert params["from"] == "DormPASS <noreply@example.edu>"
+    assert params["to"] == ["cs-2022-084@ceconline.edu"]
+    assert params["subject"] == "Activate your DormPASS account"
+
+    # The email IS the channel: the token must be present in the payload —
+    # over the PUBLIC https base, never localhost, and with the fragment
+    # form so a click can never write the token into a server access log.
+    assert (
+        "https://hostelpass.example.edu/activate#token="
+        "SECRET-TOKEN-VALUE-FOR-TEST" in params["html"]
+    )
+    assert (
+        "https://hostelpass.example.edu/activate#token="
+        "SECRET-TOKEN-VALUE-FOR-TEST" in params["text"]
+    )
+    assert "localhost" not in params["html"]
+    assert "hostelpass://activate?token=SECRET-TOKEN-VALUE-FOR-TEST" in params["text"]
+    # Paste-code fallback (Student app's manual Activate screen).
+    assert "SECRET-TOKEN-VALUE-FOR-TEST" in params["html"]
+
+
+def test_resend_mode_requires_api_key_and_sender(reset_email_settings,
+                                                 monkeypatch):
+    """EMAIL_MODE=resend without configuration is a reported config error —
+    never a fake send."""
+    _enable_resend(monkeypatch, with_key=False)
+    result = email_service.send_activation_email(
+        to_email="x@ceconline.edu", student_name="X", roll="R",
+        plaintext_token="t", expires_at=_now(),
+    )
+    assert result.status == email_service.STATUS_FAILED
+    assert "RESEND_API_KEY" in (result.detail or "")
+    assert _FakeResendAPI.calls == []
+
+
+def test_resend_provider_failure_is_reported_failed(reset_email_settings,
+                                                    monkeypatch):
+    """A Resend/network failure surfaces as failed, token-free."""
+    _enable_resend(monkeypatch)
+    _FakeResendAPI.raise_with = RuntimeError("simulated Resend outage")
+    result = email_service.send_activation_email(
+        to_email="x@ceconline.edu", student_name="X", roll="R",
+        plaintext_token="UNIQUE-TOKEN-Y", expires_at=_now(),
+    )
+    assert result.status == email_service.STATUS_FAILED
+    assert "RuntimeError" in (result.detail or "")
+    assert "outage" in (result.detail or "")
+    assert "UNIQUE-TOKEN-Y" not in (result.detail or "")
+
+
+def test_activate_endpoint_with_resend_reports_sent_without_inline_token(
+    client, enrolling_student, monkeypatch,
+):
+    """Production posture end-to-end: EMAIL_MODE=resend + inline token
+    withheld -> the response reports the REAL send and never carries the
+    key; the audit records the status, never the token."""
+    _enable_resend(monkeypatch)
+    monkeypatch.setattr(settings, "allow_inline_activation_token", False)
+    roll = enrolling_student.student_id
+    resp = client.post(f"{W_STUDENTS}/{roll}/activate",
+                       headers=_admin_headers(client))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["email_status"] == "sent"
+    assert body["delivered"] is True
+    assert body["activation_token"] is None
+    assert body["setup_url"] is None
+    assert body["activation_pending"] is True
+    assert "msg_test_123" in (body["email_detail"] or "")
+
+    assert len(_FakeResendAPI.calls) == 1
+    assert _FakeResendAPI.calls[0]["to"] == ["cs-2022-084@ceconline.edu"]
+
+
+def test_activation_base_url_env_alias(monkeypatch):
+    """ACTIVATION_BASE_URL is accepted as an alias of APP_BASE_URL."""
+    from app.core.config import Settings
+
+    monkeypatch.setenv("ACTIVATION_BASE_URL", "https://hostels.example.edu")
+    monkeypatch.delenv("APP_BASE_URL", raising=False)
+    assert Settings(_env_file=None).app_base_url == "https://hostels.example.edu"
+
+    monkeypatch.setenv("APP_BASE_URL", "https://primary.example.edu")
+    # When both are present the canonical name wins.
+    assert Settings(_env_file=None).app_base_url == "https://primary.example.edu"

@@ -29,8 +29,10 @@ services:
       # --- Email delivery (activation links) -------------------------------
       # Explicitly interpolated from the compose project .env (same file the
       # `env_file` directive reads; never commit it). EMAIL_MODE=off sends
-      # nothing and the API says so honestly; EMAIL_MODE=smtp delivers for
-      # real; EMAIL_MODE=log writes rendered .eml files into the container's
+      # nothing and the API says so honestly; EMAIL_MODE=resend delivers for
+      # real through the Resend Email API (recommended — see below);
+      # EMAIL_MODE=smtp is the alternative SMTP production backend;
+      # EMAIL_MODE=log writes rendered .eml files into the container's
       # var/outbox (development only).
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
       EMAIL_MODE: ${EMAIL_MODE:-off}
@@ -45,6 +47,17 @@ services:
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-HostelPass}
       # STARTTLS on non-465 ports; set false only for a trusted local relay.
       SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      # --- Resend Email API (EMAIL_MODE=resend — recommended production) ---
+      # Sent over HTTPS to api.resend.com with the official Python SDK; no
+      # SMTP involved. All values come from the untracked compose .env —
+      # never commit them: RESEND_API_KEY (re_…), RESEND_FROM_EMAIL (a
+      # sender/domain VERIFIED in Resend; unverified senders are rejected),
+      # RESEND_FROM_NAME. The email's activation-link base URL is
+      # APP_BASE_URL above; ACTIVATION_BASE_URL is accepted as an alias and
+      # is read straight from .env via `env_file` if you prefer that name.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      RESEND_FROM_NAME: ${RESEND_FROM_NAME:-DormPASS}
     depends_on:
       db:
         condition: service_healthy

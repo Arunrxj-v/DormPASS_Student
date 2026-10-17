@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
@@ -23,8 +23,19 @@ class FaceEmbedder {
   static FaceEmbedder? _instance;
 
   /// Process-wide singleton — interpreter allocation is not cheap.
-  static Future<FaceEmbedder> load() async =>
-      _instance ??= FaceEmbedder._(await Interpreter.fromAsset(modelAsset));
+  static Future<FaceEmbedder> load() async {
+    if (_instance != null) return _instance!;
+    final interpreter = await Interpreter.fromAsset(modelAsset);
+    _instance = FaceEmbedder._(interpreter);
+    // TEMP (face-pipeline audit): the model's DECLARED tensors — shape, dtype.
+    debugPrint(
+      '[FaceDebug] model=$modelAsset declaredInput=${interpreter.getInputTensor(0).shape} '
+      'declaredType=${interpreter.getInputTensor(0).type} '
+      'declaredOutput=${interpreter.getOutputTensors().first.shape} '
+      'declaredOutType=${interpreter.getOutputTensors().first.type}',
+    );
+    return _instance!;
+  }
 
   /// Aligns/crops the ML Kit face box (with margin) from an upright bitmap and
   /// returns an L2-normalized 128-d embedding.
@@ -51,13 +62,45 @@ class FaceEmbedder {
         input[i++] = (p.b.toDouble() - 127.5) / 128.0;
       }
     }
-    _interpreter.run(input, _output);
-    final raw = _output[0] as List<double>;
+    // TEMP (face-pipeline audit): the tensor ACTUALLY built from the camera
+    // still — row-major RGB float32, values (p − 127.5) / 128 ∈ [−1, 1].
+    // Must be exactly 37632 floats = [1,112,112,3].
+    debugPrint(
+      '[FaceDebug] actualInput=Float32List(${input.length}) '
+      '(model expects ${1 * inputSize * inputSize * 3}) range=[-1,1] r=g=b order',
+    );
+    // Root-cause fix (same as warden app face_embedder): Interpreter.run
+    // calls Tensor.getInputShapeIfDifferent(input), which computes the shape
+    // of a FLAT Float32List as [input.length] — [37632] — finds it different
+    // from the model's [1,112,112,3], and resizes the input tensor to that
+    // 1-D shape. The first op (Conv2D) requires 4-D input, so AllocateTensors
+    // fails with the opaque `Bad state: failed precondition` and the whole
+    // attendance pipeline dies before any network request is made.
+    // Passing the raw bytes takes the library's fast path: Uint8List inputs
+    // skip shape computation entirely (no resize), and the byte layout is
+    // identical (row-major float32 RGB).
+    _interpreter.run(input.buffer.asUint8List(), _output);
+    final raw = _output[0];
+    // TEMP (face-pipeline audit): embedding geometry only — values are NOT
+    // printed (never log biometric content).
+    var sumSq = 0.0;
+    for (final x in raw) {
+      sumSq += x * x;
+    }
+    debugPrint(
+      '[FaceDebug] embedding len=${raw.length} '
+      'l2norm=${math.sqrt(sumSq).toStringAsFixed(6)} (post-fix norm must be 1)',
+    );
     return _l2Normalize(raw);
   }
 
   // Output buffer, allocated once.
-  late final _output = [Float32List(128)];
+  //
+  // Tensor.copyTo reshapes the result bytes to the output tensor's shape
+  // [1,128] as a plain nested List<List<double>>; a nested plain list matches
+  // that reshape (a [Float32List(128)] target would throw a TypeError on
+  // assignment). Read-back below still yields List<double>.
+  late final _output = [List<double>.filled(128, 0.0)];
 
   /// Crops the face box expanded by [margin] (fraction of box size per side),
   /// clamped to image bounds — tight crops matter for both models.

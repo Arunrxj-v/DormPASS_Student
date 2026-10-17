@@ -97,7 +97,7 @@ App (Android):
 cd app
 flutter pub get
 flutter test                      # unit + widget tests, no device needed
-flutter run --dart-define=API_BASE_URL=http://<tailscale-or-lan-ip>:8000
+flutter run --dart-define=API_BASE_URL=http://<tailscale-or-lan-ip>:8000/api
 ```
 
 Android 9+ refuses cleartext HTTP to arbitrary hosts. The emulator's host alias
